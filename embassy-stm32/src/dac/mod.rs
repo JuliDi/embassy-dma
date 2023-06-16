@@ -130,9 +130,17 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         T::reset();
 
         unsafe {
+            T::regs().mcr().modify(|reg| {
+                for ch in 0..channels {
+                    reg.set_mode(ch as usize, 0);
+                    reg.set_mode(ch as usize, 0);
+                }
+            });
+
             T::regs().cr().modify(|reg| {
                 for ch in 0..channels {
                     reg.set_en(ch as usize, true);
+                    reg.set_ten(ch as usize, true);
                 }
             });
         }
@@ -231,24 +239,24 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
     /// TODO: Allow an array of Value instead of only u16, right-aligned
     pub async fn write(&mut self, data: &[u16]) -> Result<(), Error>
     where
-        Tx: TxDma<T>,
+        Tx: Dma<T>,
     {
         // TODO: Make this a parameter or get it from the struct or so...
         const CHANNEL: usize = 0;
-        let tx_request = self.txdma.request();
-
-        {
-            self.set_channel_enable(Channel::Ch1, true)?;
-        }
-
-        // Use the 12 bit right-aligned register for now. TODO: distinguish values
-        let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
-        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
 
         debug!("Entering unsafe block");
         unsafe {
-            T::regs().cr().modify(|reg| reg.set_dmaen(CHANNEL, true));
+            T::regs().cr().modify(|w| {
+                w.set_en(CHANNEL, true);
+                w.set_dmaen(CHANNEL, true);
+            });
         }
+
+        let tx_request = self.txdma.request();
+        // Use the 12 bit right-aligned register for now. TODO: distinguish values
+        let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
+        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
+        //let tx_f = unsafe { Transfer::new_write_repeated(&mut self.txdma, tx_request, data, 100, tx_dst, Default::default()) };
 
         debug!("Leaving unsafe block, awaiting tx_f");
 
@@ -276,7 +284,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
-dma_trait!(TxDma, Instance);
+dma_trait!(Dma, Instance);
 
 pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
