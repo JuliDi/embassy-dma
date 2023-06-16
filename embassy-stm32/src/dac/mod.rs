@@ -237,16 +237,20 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         const CHANNEL: usize = 0;
         let tx_request = self.txdma.request();
 
+        {
+            self.set_channel_enable(Channel::Ch1, true)?;
+        }
+
         // Use the 12 bit right-aligned register for now. TODO: distinguish values
         let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
         let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
 
+        debug!("Entering unsafe block");
         unsafe {
             T::regs().cr().modify(|reg| reg.set_dmaen(CHANNEL, true));
-            T::regs().cr().modify(|w| {
-                w.set_en(CHANNEL, true);
-            });
         }
+
+        debug!("Leaving unsafe block, awaiting tx_f");
 
         tx_f.await;
 
