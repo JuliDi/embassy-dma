@@ -244,7 +244,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         // TODO: Make this a parameter or get it from the struct or so...
         const CHANNEL: usize = 0;
 
-        debug!("Entering unsafe block");
+        debug!("Starting DAC");
         unsafe {
             T::regs().cr().modify(|w| {
                 w.set_en(CHANNEL, true);
@@ -253,12 +253,13 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         }
 
         let tx_request = self.txdma.request();
+
         // Use the 12 bit right-aligned register for now. TODO: distinguish values
         let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
-        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
-        //let tx_f = unsafe { Transfer::new_write_repeated(&mut self.txdma, tx_request, data, 100, tx_dst, Default::default()) };
 
-        debug!("Leaving unsafe block, awaiting tx_f");
+        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
+
+        debug!("Awaiting tx_f");
 
         tx_f.await;
 
@@ -266,12 +267,12 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         unsafe {
             // TODO: Do we need to check any status registers here?
 
-            // Disable the dac peripheral
             T::regs().cr().modify(|w| {
+                // Disable the dac peripheral
                 w.set_en(CHANNEL, false);
+                // Disable the DMA. TODO: Is this necessary?
+                w.set_dmaen(CHANNEL, false);
             });
-
-            T::regs().cr().modify(|reg| reg.set_dmaen(CHANNEL, false));
         }
         Ok(())
     }
